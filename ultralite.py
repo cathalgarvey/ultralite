@@ -29,6 +29,7 @@ Ultralite.
 The goal is to support 90% of the convenience of requests, while remaining
 short and in-lineable, so you can literally copy/paste all of the code in this
 module and drop it into your own code to get a taste of requests, anywhere.
+And all of this while passing flake8 and pyflakes.
 
 ## How do I use this?
 The intended use-case is to copy/paste this into your own modules or libraries.
