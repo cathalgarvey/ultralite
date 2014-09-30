@@ -16,9 +16,6 @@ setup(
     maintainer="Cathal Garvey",
     maintainer_email="cathalgarvey@cathalgarvey.me",
     license="GNU Affero General Public License v3",
-    packages = [
-        'ultralite',
-    ],
     classifiers=[
         "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
         "Development Status :: 3 - Alpha",
