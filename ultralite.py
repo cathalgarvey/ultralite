@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-# Ultralite
+## Ultralite
 *For when portability is critical, but you still need some HTTP convenience*
 
-## Author
+### Author
 by Cathal Garvey, copyright 2014, proudly licensed under the
 [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.txt).
 
@@ -12,7 +12,7 @@ by Cathal Garvey, copyright 2014, proudly licensed under the
 * Github: https://github.com/cathalgarvey
 * miniLock.io: JjmYYngs7akLZUjkvFkuYdsZ3PyPHSZRBKNm6qTYKZfAM
 
-## About
+### About
 Anyone who's coded in Python for long will have discovered [Kenneth Reitz's
 "Requests" library](http://docs.python-requests.org/en/latest/), which makes
 HTTP operations far more clean and straightforward than provided for by the
@@ -31,7 +31,7 @@ short and in-lineable, so you can literally copy/paste all of the code in this
 module and drop it into your own code to get a taste of requests, anywhere.
 And all of this while passing flake8 and pyflakes.
 
-## How do I use this?
+### How do I use this?
 The intended use-case is to copy/paste this into your own modules or libraries.
 You can also use `pip install ultralight` to install for use in the interactive
 interpreter or to list it as a dependency in setup.py.
@@ -60,7 +60,7 @@ Features provided that mimic requests:
       http response code is not within 2XX range, otherwise do nothing.
     - UltraliteResponse.json() -> attempt json-decoding UltraliteResponse.text
 
-## Does this depend on anything?
+### Does this depend on anything?
 Nope. This is valid pure-stdlib python as of Python 3.3+.
 
 """
