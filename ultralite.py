@@ -166,10 +166,12 @@ class Ultralite:
                         self.status_code, self.reason))
 
         def _ensure_child_ssl(self, url, skip_ssl=False):
-            if self.request.using_ssl and not url.startswith("https"):
-                if not skip_ssl:
-                    raise Ultralite.UltraliteSSLError(
-                        "Chained request using non-SSL on SSL-secured parent!")
+            if self.request.using_ssl and (not url.startswith("https")):
+                raise Ultralite.UltraliteSSLError(
+                    "Chained request using non-SSL on SSL-secured parent!")
+            elif (not self.request.using_ssl) and url.startswith("https"):
+                raise Ultralite.UltraliteSSLError(
+                    "Chained request wants SSL but parent context lacks it!")
 
         def _chain(self, url, method, *a, **kw):
             self._ensure_child_ssl(url)
@@ -331,6 +333,11 @@ if __name__ == "__main__":
     >>> r2.get('http://www.twitter.com/onetruecathal')
     Traceback (most recent call last):
     UltraliteSSLError: Chained request using non-SSL on SSL-secured parent!
+
+    >>> r = Ultralite.get('http://www.twitter.com')
+    >>> r2 = r.get('https://www.twitter.com')
+    Traceback (most recent call last):
+    UltraliteSSLError: Chained request wants SSL but parent context lacks it!
 
     Doctests over.
     TODO:
