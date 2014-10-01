@@ -48,10 +48,17 @@ POST/PUT/DELETE in the near future also in a manner similar to requests
 Features provided that mimic requests:
 
 * Ultralite methods "get"/"head"/"put"/"post"/"delete" (not all implemented)
+* Headers can be provided as a dictionary
+* GET url parameters can be provided as a dictionary
+* Cookies are preserved, and can be provided as "cookies" arg (cookiejars only)
+* SSL is attempted automatically for URLs beginning with "https", and raises
+  a UltraliteSSLError (distinct from and not deriving from UltraliteError)
+  if an SSL handler cannot be successfully constructed; no silent SSL failures!
 * Methods return Ultralite.UltraliteResponse objects which are requests-like:
     - UltraliteResponse.headers -> dict
     - UltraliteResponse.status_code -> int
     - UltraliteResponse.reason -> str
+    - UltraliteResponse.cookies -> http.cookiejar.CookieJar
     - UltraliteResponse.content -> bytes
     - UltraliteResponse.text -> unicode decoding of UltraliteResponse.content
     - UltraliteResponse.raw -> http.client.HTTPResponse / urllib.error.XXX
@@ -59,6 +66,34 @@ Features provided that mimic requests:
     - UltraliteResponse.raise_for_status() -> Raise Ultralite.UltraliteError if
       http response code is not within 2XX range, otherwise do nothing.
     - UltraliteResponse.json() -> attempt json-decoding UltraliteResponse.text
+
+Additional features:
+* UltraliteResponse.request_context -> urllib.request.OpenerDirector used to
+  make the original request; can be re-used for subsequent manual requests,
+  in future this may be streamlined to allow request chaining.
+* UltraliteResponse.cookies_dict is a dictionary of name:value cookie pairs.
+* UltraliteResponse objects support request chaining (with preserved context),
+  so you can do (I'm aware this example has no clear use):
+  `ultralite.get("http://twitter.com").get("http://twitter.com/me")`
+* Chained requests that begin with HTTPS enforce it for subsequent calls:
+  `ultralite.get("https://twitter.com").get("http://twitter.com/me") -> Error`
+
+### Known Bugs
+* SSL is not yet tested by the doctests suite; desired tests include:
+    - SSL verification of a known-good (pinned?) certificate.
+    - SSL failure on a self-signed cert.
+    - SSL failure on a falsely signed cert.
+    - SSL failure on no cert.
+    - SSL failure on expired or premature cert.
+* Cookies either don't work at all (?) or get lost on 30X redirects, because
+  httpbin.org's cookies API seems to fail to set cookies, but features a redir.
+
+### Desired Features
+* POST / PUT / DELETE!
+* POST with streaming upload
+* Get with streaming download
+* HTTP Basic Authentication, at least.
+* Proxying
 
 ### Does this depend on anything?
 Nope. This is valid pure-stdlib python as of Python 3.3+.
@@ -69,6 +104,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import http.client
+import http.cookiejar
 import json
 
 
@@ -77,10 +113,18 @@ class Ultralite:
     class UltraliteError(Exception):
         pass
 
+    class UltraliteSSLError(Exception):
+        pass
+
     class UltraliteResponse:
-        def __init__(self, request, response):
+        def __repr__(self):
+            return r"UltraliteResponse<'{}', {}>".format(
+                self.raw.url, self.status_code)
+
+        def __init__(self, request, response, request_context):
             self.request = request
             self.raw = response
+            self.request_context = request_context
             if isinstance(response, http.client.HTTPResponse):
                 self.headers = dict(response.getheaders())
                 self.status_code = response.status
@@ -98,6 +142,17 @@ class Ultralite:
                 self.content = b''
 
         @property
+        def cookies(self):
+            if not hasattr(self, "_cookiejar"):
+                self._cookiejar = http.cookiejar.CookieJar()
+                self._cookiejar.extract_cookies(self.raw, self.request)
+            return self._cookiejar
+
+        @property
+        def cookies_dict(self):
+            return dict([(c.name, c.value) for c in self.cookies])
+
+        @property
         def text(self):
             return self.content.decode()
 
@@ -110,25 +165,93 @@ class Ultralite:
                     "Status code not in 2XX range: {} - {}".format(
                         self.status_code, self.reason))
 
+        def _ensure_child_ssl(self, url, skip_ssl=False):
+            if self.using_ssl and not url.startswith("https"):
+                if not skip_ssl:
+                    raise Ultralite.UltraliteSSLError(
+                        "Chained request using non-SSL on SSL-secured parent!")
+
+        def _chain(self, url, method, *a, **kw):
+            self._ensure_child_ssl(url)
+            req = Ultralite.construct_request(method, url, *a, **kw)
+            return Ultralite.resolve_call(req, self.request_context)
+
+        def head(self, url, *a, **kw):
+            return self._chain(url, 'HEAD', *a, **kw)
+
+        def get(self, url, *a, **kw):
+            return self._chain(url, 'GET', *a, **kw)
+
+        def post(self, url, *a, **kw):
+            return self._chain(url, 'POST', *a, **kw)
+
+        def put(self, url, *a, **kw):
+            return self._chain(url, 'PUT', *a, **kw)
+
+        def delete(self, url, *a, **kw):
+            return self._chain(url, 'DELETE', *a, **kw)
+
     _default_headers = {}
 
     @classmethod
-    def call_method(self, method, url, *, headers={}, params=None):
+    def construct_request(self, method, url, *, params=None, headers={}):
         outbound_headers = self._default_headers.copy()
         outbound_headers.update(headers)
         if params is not None:
             url += "?{}".format(urllib.parse.urlencode(params))
-        req = urllib.request.Request(
-            url,
-            headers=headers,
-            method=method)
+        return urllib.request.Request(url, headers=headers, method=method)
+
+    @classmethod
+    def create_ssl_handler(self):
         try:
-            resp = urllib.request.urlopen(req)
+            import ssl
+            ssl_context = ssl.create_default_context()
+            sslHandler = urllib.request.HTTPSHandler(context=ssl_context)
+            return sslHandler
+        except Exception as E:
+            raise Ultralite.UltraliteSSLError(  # HALT AND CATCH FIRE
+                "Failed to establish SSL context: {}".format(E))
+
+    @classmethod
+    def call_method(self,
+                    method,
+                    url,
+                    *,
+                    headers={},
+                    cookies=None,
+                    params=None):
+        # Construct request separately to context, etcetera; may help
+        # when implementing request chaining later on.
+        req = self.construct_request(method,
+                                     url,
+                                     params=params,
+                                     headers=headers)
+        # Construct handlers
+        handlers = []
+        if url.startswith("https"):
+            # Will raise UltraliteSSLError if it fails to make a handler.
+            handlers.append(self.create_ssl_handler())
+            req.using_ssl = True
+        else:
+            req.using_ssl = False
+        if cookies is not None:
+            if not isinstance(cookies, http.cookiejar.CookieJar):
+                raise TypeError("cookies must be a Cookiejar instance.")
+            cookiehandler = urllib.request.HTTPCookieProcessor(cookies)
+            handlers.append(cookiehandler)
+        # Apply handlers
+        opener = urllib.request.build_opener(*handlers)
+        return self.resolve_call(req, opener)
+
+    @classmethod
+    def resolve_call(self, req, opener):
+        try:
+            resp = opener.open(req)
         except urllib.error.URLError as e:
             resp = e
         except urllib.error.HTTPError as e:
             resp = e
-        return Ultralite.UltraliteResponse(req, resp)
+        return Ultralite.UltraliteResponse(req, resp, opener)
 
     @classmethod
     def get(self, *a, **kw):
@@ -183,7 +306,27 @@ if __name__ == "__main__":
     >>> r.content
     b''
 
+    >>> r = Ultralite.get('http://www.twitter.com')
+    >>> r.status_code
+    200
+    >>> len(list(iter(r.cookies))) > 0
+    True
+    >>> '_twitter_sess' in r.cookies_dict
+    True
+    >>> 'guest_id' in r.cookies_dict
+    True
+
+    >>> r = Ultralite.get('http://httpbin.org/cookies/set',
+    ...                   params={'foo':'bar'})
+    >>> isinstance(r.cookies, http.cookiejar.CookieJar)
+    True
+    >>> dict(r.cookies).get('foo')
+    'bar'
+
     Doctests over.
+    TODO:
+        * Need more robust testing of oddities like cookies (httpbin fail?)
+        * Need to test SSL: valid (pinned?) cert versus local self-signed?
     """
     doctest.run_docstring_examples(Ultralite, globals(), verbose=False)
 else:
