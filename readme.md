@@ -47,10 +47,17 @@ POST/PUT/DELETE in the near future also in a manner similar to requests
 Features provided that mimic requests:
 
 * Ultralite methods "get"/"head"/"put"/"post"/"delete" (not all implemented)
+* Headers can be provided as a dictionary
+* GET url parameters can be provided as a dictionary
+* Cookies are preserved, and can be provided as "cookies" arg (cookiejars only)
+* SSL is attempted automatically for URLs beginning with "https", and raises
+  a UltraliteSSLError (distinct from and not deriving from UltraliteError)
+  if an SSL handler cannot be successfully constructed; no silent SSL failures!
 * Methods return Ultralite.UltraliteResponse objects which are requests-like:
     - UltraliteResponse.headers -> dict
     - UltraliteResponse.status_code -> int
     - UltraliteResponse.reason -> str
+    - UltraliteResponse.cookies -> http.cookiejar.CookieJar
     - UltraliteResponse.content -> bytes
     - UltraliteResponse.text -> unicode decoding of UltraliteResponse.content
     - UltraliteResponse.raw -> http.client.HTTPResponse / urllib.error.XXX
@@ -58,6 +65,34 @@ Features provided that mimic requests:
     - UltraliteResponse.raise_for_status() -> Raise Ultralite.UltraliteError if
       http response code is not within 2XX range, otherwise do nothing.
     - UltraliteResponse.json() -> attempt json-decoding UltraliteResponse.text
+
+Additional features:
+* UltraliteResponse.request_context -> urllib.request.OpenerDirector used to
+  make the original request; can be re-used for subsequent manual requests,
+  in future this may be streamlined to allow request chaining.
+* UltraliteResponse.cookies_dict is a dictionary of name:value cookie pairs.
+* UltraliteResponse objects support request chaining (with preserved context),
+  so you can do (I'm aware this example has no clear use):
+  `ultralite.get("http://twitter.com").get("http://twitter.com/me")`
+* Chained requests that begin with HTTPS enforce it for subsequent calls:
+  `ultralite.get("https://twitter.com").get("http://twitter.com/me") -> Error`
+
+### Known Bugs
+* SSL is not yet tested by the doctests suite; desired tests include:
+    - SSL verification of a known-good (pinned?) certificate.
+    - SSL failure on a self-signed cert.
+    - SSL failure on a falsely signed cert.
+    - SSL failure on no cert.
+    - SSL failure on expired or premature cert.
+* Cookies either don't work at all (?) or get lost on 30X redirects, because
+  httpbin.org's cookies API seems to fail to set cookies, but features a redir.
+
+### Desired Features
+* POST / PUT / DELETE!
+* POST with streaming upload
+* Get with streaming download
+* HTTP Basic Authentication, at least.
+* Proxying
 
 ### Does this depend on anything?
 Nope. This is valid pure-stdlib python as of Python 3.3+.

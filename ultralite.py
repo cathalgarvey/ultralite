@@ -166,7 +166,7 @@ class Ultralite:
                         self.status_code, self.reason))
 
         def _ensure_child_ssl(self, url, skip_ssl=False):
-            if self.using_ssl and not url.startswith("https"):
+            if self.request.using_ssl and not url.startswith("https"):
                 if not skip_ssl:
                     raise Ultralite.UltraliteSSLError(
                         "Chained request using non-SSL on SSL-secured parent!")
@@ -174,6 +174,7 @@ class Ultralite:
         def _chain(self, url, method, *a, **kw):
             self._ensure_child_ssl(url)
             req = Ultralite.construct_request(method, url, *a, **kw)
+            req.using_ssl = self.request.using_ssl
             return Ultralite.resolve_call(req, self.request_context)
 
         def head(self, url, *a, **kw):
@@ -322,6 +323,14 @@ if __name__ == "__main__":
     True
     >>> dict(r.cookies).get('foo')
     'bar'
+
+    >>> r = Ultralite.get('https://www.twitter.com')
+    >>> r2 = r.get('https://www.twitter.com/onetruecathal')
+    >>> r2.status_code
+    200
+    >>> r2.get('http://www.twitter.com/onetruecathal')
+    Traceback (most recent call last):
+    UltraliteSSLError: Chained request using non-SSL on SSL-secured parent!
 
     Doctests over.
     TODO:
